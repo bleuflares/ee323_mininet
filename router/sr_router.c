@@ -204,6 +204,10 @@ void sr_handlepacket(struct sr_instance* sr,
       memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
       struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
       memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+
+      ip_hdr.ip_dst = ip_hdr.ip_src;
+      ip_hdr.ip_src = if_temp->ip;
+      ip_hdr.ip_p = htons(ip_protocol_icmp);
       
       sr_icmp_hdr_t icmp_hdr;
       
@@ -211,7 +215,8 @@ void sr_handlepacket(struct sr_instance* sr,
       icmp_hdr.icmp_code = 0;
 
       realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
-      memcpy(packet_cpy sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+      memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+      memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
       memcpy(packet_cpy, &eth_hdr, 14);
       sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
     }
@@ -234,6 +239,9 @@ void sr_handlepacket(struct sr_instance* sr,
         if_walker = sr_get_interface(sr, (const char *)interface);
         memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
         
+        ip_hdr.ip_dst = ip_hdr.ip_src;
+        ip_hdr.ip_src = if_walker->ip;
+
         sr_icmp_hdr_t icmp_hdr;
         if(ip_hdr.ip_p == htons(ip_protocol_icmp))
         {
@@ -248,8 +256,11 @@ void sr_handlepacket(struct sr_instance* sr,
           icmp_hdr.icmp_code = 3;
         }
 
+        ip_hdr.ip_p = htons(ip_protocol_icmp);
+
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
-        memcpy(packet_cpy sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+        memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+        memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
         memcpy(packet_cpy, &eth_hdr, 14);
         sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         return;
@@ -286,6 +297,10 @@ void sr_handlepacket(struct sr_instance* sr,
         memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
         if_walker = sr_get_interface(sr, (const char *)interface);
         memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
+
+        ip_hdr.ip_dst = ip_hdr.ip_src;
+        ip_hdr.ip_src = if_walker->ip;
+        ip_hdr.ip_p = htons(ip_protocol_icmp);
         
         sr_icmp_hdr_t icmp_hdr;
         
@@ -293,7 +308,8 @@ void sr_handlepacket(struct sr_instance* sr,
         icmp_hdr.icmp_code = 0;
 
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
-        memcpy(packet_cpy, sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+        memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+        memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
         memcpy(packet_cpy, &eth_hdr, 14);
         sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         return;

@@ -33,15 +33,24 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
                 memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
                 
+                sr_ip_hdr_t ip_hdr;
+                memcpy(&ip_hdr, packet_cpy + sizeof(ip_hdr), sizeof(ip_hdr));
+                ip_hdr.ip_dst = ip_hdr.ip_src;
+                ip_hdr.ip_src = if_temp->ip;
+
                 sr_icmp_hdr_t icmp_hdr;
                 
                 icmp_hdr.icmp_type = 3;
                 icmp_hdr.icmp_code = 1;
+                ip_hdr.ip_p = htons(ip_protocol_icmp);
 
-                realloc(packet_cpy, sizeof(icmp_hdr) + 14);
-                memcpy(packet_cpy + 14, &icmp_hdr, sizeof(icmp_hdr));
+                realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
+
+                memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+                memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
                 memcpy(packet_cpy, &eth_hdr, 14);
-                sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + 14, pkt_walker->iface);
+                sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
+
                 free(packet_cpy);
                 pkt_walker = pkt_walker->next;
             }
