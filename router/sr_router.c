@@ -78,55 +78,108 @@ void sr_handlepacket(struct sr_instance* sr,
   assert(interface);
 
   printf("*** -> Received packet of length %d \n",len);
-  /*
-  printf("sizeof(sr_ip_hdr_t) is %d \n", sizeof(sr_ip_hdr_t));
-  printf("sizeof(sr_arp_hdr_t) is %d \n", sizeof(sr_arp_hdr_t));
-  printf("sizeof(sr_ethernet_hdr_t) is %d \n", sizeof(sr_ethernet_hdr_t));
-  */
 
+  print_addr_eth(packet);
   uint8_t *packet_cpy = malloc(len);
   memcpy(packet_cpy, packet, len);
   
   sr_ethernet_hdr_t eth_hdr;
   memcpy(&eth_hdr, packet_cpy, 14);
 
-  if(eth_hdr.ether_type == ethertype_arp)
+  if(ethertype((uint8_t *)&eth_hdr) == ethertype_arp)
   {
     sr_arp_hdr_t arp_hdr;
     memcpy(&arp_hdr, packet_cpy + 14, len - 14);
+    print_hdr_arp((uint8_t *)&arp_hdr);
 
-    struct sr_if* if_walker = 0;
-
-    if(sr->if_list == 0)
-        printf(" Interface list empty \n");
-
-    if_walker = sr->if_list;
-    
-    while(if_walker->next)
+    if(arp_hdr.ar_op == htons(arp_op_request))
     {
-        if(arp_hdr.ar_tip == if_walker->ip)
-        {
-          memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
-          if_walker = sr_get_interface(sr, (const char *)interface);
-          memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
+      printf("received arp req\n");
+      struct sr_if* if_walker = 0;
 
-          arp_hdr.ar_op = arp_op_reply;
-          memcpy(arp_hdr.ar_tha, arp_hdr.ar_sha, ETHER_ADDR_LEN);
-          memcpy(arp_hdr.ar_sha, if_walker->addr, ETHER_ADDR_LEN);
-          arp_hdr.ar_tip = arp_hdr.ar_sip;
-          arp_hdr.ar_sip = if_walker->ip;
+      if(sr->if_list == 0)
+          printf(" Interface list empty \n");
 
-          memcpy(packet_cpy + 14, &arp_hdr, len - 14);
-          memcpy(packet_cpy, &eth_hdr, 14);
-          sr_send_packet(sr, packet_cpy, len, interface);
-          break;
-        }
-        if_walker = if_walker->next;
+      if_walker = sr->if_list;
+      
+      while(if_walker->next)
+      {
+          if(arp_hdr.ar_tip == if_walker->ip)
+          {
+            memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
+            if_walker = sr_get_interface(sr, (const char *)interface);
+            memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
+
+            arp_hdr.ar_op = htons(arp_op_reply);
+            memcpy(arp_hdr.ar_tha, arp_hdr.ar_sha, ETHER_ADDR_LEN);
+            memcpy(arp_hdr.ar_sha, if_walker->addr, ETHER_ADDR_LEN);
+            arp_hdr.ar_tip = arp_hdr.ar_sip;
+            arp_hdr.ar_sip = if_walker->ip;
+
+            memcpy(packet_cpy + 14, &arp_hdr, len - 14);
+            memcpy(packet_cpy, &eth_hdr, 14);
+            sr_send_packet(sr, packet_cpy, len, interface);
+            break;
+          }
+          if_walker = if_walker->next;
+      }
     }
+    else if(arp_hdr.ar_op == htons(arp_op_reply))
+    {
+      struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, arp_hdr.ar_sip);
+
+      if(ae != NULL)
+      {
+        printf("arp mapping already exists \n");
+        return;
+      }
+      else
+      {
+        struct sr_if* if_walker = 0;
+
+        if(sr->if_list == 0)
+        {
+            printf(" Interface list empty \n");
+            return;
+        }
+
+        if_walker = sr->if_list;
+        
+        while(if_walker->next)
+        {
+          if(arp_hdr.ar_tip == if_walker->ip)
+          {
+            printf("adding new mapping\n");
+            sr_arpcache_insert(&sr->cache, arp_hdr.ar_sha, arp_hdr.ar_sip);
+            return;
+          }
+          if_walker = if_walker->next;
+        }
+
+        /*find the arpreq with the ip matching and sent all pkts and destroy*/
+        struct sr_arpreq *arpreq_walker = sr->cache.requests;
+
+        while(arpreq_walker != NULL)
+        {
+          if(arp_hdr.ar_sip == arpreq_walker->ip)
+            break;
+        }
+        if(arpreq_walker != NULL)
+        {
+          while(arpreq_walker->packets != NULL)
+          {
+            sr_send_packet(sr, arpreq_walker->packets->buf, arpreq_walker->packets->len, arpreq_walker->packets->iface);
+            arpreq_walker->packets = arpreq_walker->packets->next;
+          }
+          sr_arpreq_destroy(&sr->cache, arpreq_walker);
+        }
+      }
+    }    
   }
 
-  else if(eth_hdr.ether_type == ethertype_ip)
+  else if(ethertype((uint8_t *)&eth_hdr) == ethertype_ip)
   {
+    printf("received arp req\n");
     sr_ip_hdr_t ip_hdr;
     uint16_t ip_checksum = 0;
 
@@ -138,23 +191,30 @@ void sr_handlepacket(struct sr_instance* sr,
       return;
     }
 
-    /*
-    sr_ip_hdr_t ip_hdr;
-    memcpy(&ip_hdr.ip_tos, packet_cpy + 14 + 1, 1);
-    memcpy(&ip_hdr.ip_len, packet_cpy + 14 + 2, 2);
-    memcpy(&ip_hdr.ip_id, packet_cpy + 14 + 4, 2);
-    memcpy(&ip_hdr.ip_off, packet_cpy + 14 + 6, 2);
-    memcpy(&ip_hdr.ip_ttl, packet_cpy + 14 + 8, 1);
-    memcpy(&ip_hdr.ip_p, packet_cpy + 14 + 9, 1);
-    memcpy(&ip_hdr.ip_sum, packet_cpy + 14 + 10, 2);
-    memcpy(&ip_hdr.ip_src, packet_cpy + 14 + 12, 4);
-    memcpy(&ip_hdr.ip_dst, packet_cpy + 14 + 16, 4);
-    */
-
     ip_hdr.ip_ttl--;
     ip_hdr.ip_sum = 0;
     ip_checksum = cksum(&ip_hdr, 20);
     ip_hdr.ip_sum = ip_checksum;
+
+    printf("checksum validated\n");
+
+    if(!ip_hdr.ip_ttl)
+    {
+      printf("ttl expired \n");
+      memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
+      struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
+      memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+      
+      sr_icmp_hdr_t icmp_hdr;
+      
+      icmp_hdr.icmp_type = 11;
+      icmp_hdr.icmp_code = 0;
+
+      realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
+      memcpy(packet_cpy sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+      memcpy(packet_cpy, &eth_hdr, 14);
+      sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
+    }
 
     struct sr_if* if_walker = 0;
 
@@ -167,39 +227,82 @@ void sr_handlepacket(struct sr_instance* sr,
     {
       if(ip_hdr.ip_dst == if_walker->ip)
       {
+        print_addr_ip_int(ip_hdr.ip_dst);
+        print_addr_ip_int(if_walker->ip);
+        printf("port unreachable send ICMP\n");
         memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
         if_walker = sr_get_interface(sr, (const char *)interface);
         memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
         
         sr_icmp_hdr_t icmp_hdr;
-        icmp_hdr.icmp_type = 3;
-        icmp_hdr.icmp_code = 3;
+        if(ip_hdr.ip_p == htons(ip_protocol_icmp))
+        {
+          printf("echo reply by the router\n");
+          icmp_hdr.icmp_type = 0;
+          icmp_hdr.icmp_code = 0;  
+        }
+        else
+        {
+          printf("port unreachable\n");
+          icmp_hdr.icmp_type = 3;
+          icmp_hdr.icmp_code = 3;
+        }
 
-        realloc(packet_cpy, sizeof(icmp_hdr) + 14);
-        memcpy(packet_cpy + 14, &icmp_hdr, sizeof(icmp_hdr));
+        realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
+        memcpy(packet_cpy sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
         memcpy(packet_cpy, &eth_hdr, 14);
-        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + 14, interface);
+        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         return;
       }
       if_walker = if_walker->next;
     }
 
     uint32_t next_hop_ip;
+    char *dst_if;
+
     if(!sr_load_rt(sr, "rtable"))
     {
       struct sr_rt* rt_walker;
 
       for(rt_walker =sr->routing_table; rt_walker != 0; rt_walker = rt_walker->next)
       {
+        printf("here1\n");
+        print_addr_ip(rt_walker->dest);
+        print_addr_ip_int(ip_hdr.ip_dst);
         if(ip_hdr.ip_dst == rt_walker->dest.s_addr)
         {
+          printf("here2\n");
+          print_addr_ip(rt_walker->gw);
+          print_addr_ip_int(rt_walker->gw.s_addr);
           next_hop_ip = rt_walker->gw.s_addr;
+          dst_if = rt_walker->interface;
           break;
         }
         /*do i need to implement longest prefix match?*/
       }
       if(rt_walker == 0)
-        next_hop_ip = sr->routing_table->gw.s_addr;
+      {
+        printf("destination net unreachable send ICMP\n");
+        memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
+        if_walker = sr_get_interface(sr, (const char *)interface);
+        memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
+        
+        sr_icmp_hdr_t icmp_hdr;
+        
+        icmp_hdr.icmp_type = 3;
+        icmp_hdr.icmp_code = 0;
+
+        realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
+        memcpy(packet_cpy, sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+        memcpy(packet_cpy, &eth_hdr, 14);
+        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
+        return;
+      }
+    }
+    else
+    {
+      printf("failed to load rtable \n");
+      return;
     }
 
     if_walker = sr_get_interface(sr, (const char *)interface);
@@ -208,14 +311,19 @@ void sr_handlepacket(struct sr_instance* sr,
     struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, next_hop_ip);
     if(ae != NULL)
     {
+      memcpy(&eth_hdr.ether_shost, eth_hdr.ether_dhost, ETHER_ADDR_LEN);
       memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
+      memcpy(packet_cpy, &eth_hdr, 14);
+      sr_send_packet(sr, packet_cpy, len, dst_if);
       free(ae);
+
     }
     else
     {
-      struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, interface);
-      sr_arpcache_sweepreqs(sr);
+      struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, dst_if);
+      sr_arpreq_handle(sr, arp_req);
     }
+
     /*
     search routing table and get next hop ip
 

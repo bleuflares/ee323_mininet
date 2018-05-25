@@ -11,6 +11,67 @@
 #include "sr_if.h"
 #include "sr_protocol.h"
 
+
+/* Newly added function that handles arp request.*/
+void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
+{
+    time_t curtime = time(NULL);
+    if(difftime(curtime, req->sent) > 1.0)
+    {
+        if(req->times_sent >= 5)
+        {
+            struct sr_packet *pkt_walker = req->packets;
+            while(pkt_walker != NULL)
+            {
+                printf("sending host unreachable ICMP \n");
+                uint8_t *packet_cpy = malloc(pkt_walker->len);
+                memcpy(packet_cpy, pkt_walker->buf, pkt_walker->len);
+                  
+                sr_ethernet_hdr_t eth_hdr;
+                memcpy(&eth_hdr, packet_cpy, 14);
+                memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
+                struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
+                memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+                
+                sr_icmp_hdr_t icmp_hdr;
+                
+                icmp_hdr.icmp_type = 3;
+                icmp_hdr.icmp_code = 1;
+
+                realloc(packet_cpy, sizeof(icmp_hdr) + 14);
+                memcpy(packet_cpy + 14, &icmp_hdr, sizeof(icmp_hdr));
+                memcpy(packet_cpy, &eth_hdr, 14);
+                sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + 14, pkt_walker->iface);
+                free(packet_cpy);
+                pkt_walker = pkt_walker->next;
+            }
+            sr_arpreq_destroy(&sr->cache, req);
+        }
+        else
+        {
+            struct sr_if *if_walker = sr->if_list;
+      
+            while(if_walker->next)
+            {
+                sr_ethernet_hdr_t eth_hdr;
+                sr_arp_hdr_t arp_hdr;
+                uint8_t *packet = malloc(sizeof(eth_hdr) + sizeof(arp_hdr));
+                memset(arp_hdr.ar_tha, 0xf, ETHER_ADDR_LEN);
+                memcpy(arp_hdr.ar_sha, if_walker->addr, ETHER_ADDR_LEN);
+                arp_hdr.ar_tip = req->ip;
+                arp_hdr.ar_sip = if_walker->ip;
+
+                memcpy(&arp_hdr, packet + sizeof(eth_hdr), sizeof(arp_hdr));
+                memcpy(&eth_hdr, packet, sizeof(eth_hdr));
+                sr_send_packet(sr, packet, sizeof(eth_hdr) + sizeof(arp_hdr), if_walker->name);
+                if_walker = if_walker->next;
+            }
+            req->sent = curtime;
+            req->times_sent++;
+        }
+    }
+}
+
 /* 
   This function gets called every second. For each request sent out, we keep
   checking whether we should resend an request or destroy the arp request.
@@ -18,6 +79,16 @@
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) { 
     /* Fill this in */
+
+    struct sr_arpreq *arpreq_walker = sr->cache.requests;
+    struct sr_arpreq *arpreq_walker_next = NULL;
+
+    while(arpreq_walker != NULL)
+    {
+        arpreq_walker_next = sr->cache.requests->next;
+        sr_arpreq_handle(sr, arpreq_walker);
+        arpreq_walker = arpreq_walker_next;
+    }
 }
 
 /* You should not need to touch the rest of this code. */
