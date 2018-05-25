@@ -13,7 +13,8 @@
 
 #include <stdio.h>
 #include <assert.h>
-
+#include <stdlib.h>
+#include <string.h>
 
 #include "sr_if.h"
 #include "sr_rt.h"
@@ -129,8 +130,8 @@ void sr_handlepacket(struct sr_instance* sr,
     sr_ip_hdr_t ip_hdr;
     uint16_t ip_checksum = 0;
 
-    memcpy(ip_hdr, packet_cpy + 14, 20);
-    ip_checksum = cksum(ip_hdr, 20);
+    memcpy(&ip_hdr, packet_cpy + 14, 20);
+    ip_checksum = cksum(&ip_hdr, 20);
     if(ip_checksum != 0xffff)
     {
       printf("wrong checksum\n");
@@ -152,7 +153,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
     ip_hdr.ip_ttl--;
     ip_hdr.ip_sum = 0;
-    ip_checksum = cksum(ip_hdr_buf, 20);
+    ip_checksum = cksum(&ip_hdr, 20);
     ip_hdr.ip_sum = ip_checksum;
 
     struct sr_if* if_walker = 0;
@@ -164,9 +165,8 @@ void sr_handlepacket(struct sr_instance* sr,
     
     while(if_walker->next)
     {
-      if(ip_hdr_dst == if_walker->ip)
+      if(ip_hdr.ip_dst == if_walker->ip)
       {
-        //dst ip is router interface respond with ICMP port unreachable
         memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
         if_walker = sr_get_interface(sr, (const char *)interface);
         memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
@@ -184,44 +184,45 @@ void sr_handlepacket(struct sr_instance* sr,
       if_walker = if_walker->next;
     }
 
+    uint32_t next_hop_ip;
     if(!sr_load_rt(sr, "rtable"))
     {
       struct sr_rt* rt_walker;
-      uint32_t next_hop_ip;
 
       for(rt_walker =sr->routing_table; rt_walker != 0; rt_walker = rt_walker->next)
       {
-        if(ip_hdr.ip_dst == rt_walker->dest)
+        if(ip_hdr.ip_dst == rt_walker->dest.s_addr)
         {
-          next_hop_ip = rt_walker->gw;
+          next_hop_ip = rt_walker->gw.s_addr;
           break;
         }
-        //do i need to implement longest prefix match?
+        /*do i need to implement longest prefix match?*/
       }
       if(rt_walker == 0)
-        next_hop_ip = sr->routing_table->gw;
+        next_hop_ip = sr->routing_table->gw.s_addr;
     }
 
     if_walker = sr_get_interface(sr, (const char *)interface);
     memcpy(&eth_hdr.ether_shost, if_walker->addr, 6);
 
-    struct sr_arpentry *ae = sr_arpcache_lookup(sr->cache, next_hop_ip);
+    struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, next_hop_ip);
     if(ae != NULL)
     {
-      memcpy(&eth_hdr.ether_dhost ae->mac, 6);
+      memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
       free(ae);
     }
     else
     {
-      struct sr_arpreq *arp_req = arpcache_queuereq(next_hop_ip, packet_cpy, len);
-      sr_arpcache_sweepreqs(arp_req);
+      struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, interface);
+      sr_arpcache_sweepreqs(sr);
     }
+    /*
+    search routing table and get next hop ip
 
-    //search routing table and get next hop ip
+    lookup arp table for the mac addr for that ip
 
-    // lookup arp table for the mac addr for that ip
-
-    //deliver packet with that mac addr and ip
+    deliver packet with that mac addr and ip
+    */
 
   }
   /* fill in code here */
