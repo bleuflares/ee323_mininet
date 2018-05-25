@@ -37,18 +37,26 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 memcpy(&ip_hdr, packet_cpy + sizeof(ip_hdr), sizeof(ip_hdr));
                 ip_hdr.ip_dst = ip_hdr.ip_src;
                 ip_hdr.ip_src = if_temp->ip;
+                ip_hdr.ip_p = 1;
 
-                sr_icmp_hdr_t icmp_hdr;
+                sr_icmp_t3_hdr_t icmp_hdr;
                 
                 icmp_hdr.icmp_type = 3;
                 icmp_hdr.icmp_code = 1;
-                ip_hdr.ip_p = htons(ip_protocol_icmp);
+                
+                ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+                ip_hdr.ip_sum = 0;
+                uint16_t ip_checksum = cksum(&ip_hdr, sizeof(icmp_hdr) + sizeof(ip_hdr));
+                ip_hdr.ip_sum = ip_checksum;
 
                 realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
 
                 memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
                 memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
                 memcpy(packet_cpy, &eth_hdr, 14);
+
+                print_hdr_ip(&ip_hdr);
+                print_hdr_icmp(&icmp_hdr);
                 sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
 
                 free(packet_cpy);

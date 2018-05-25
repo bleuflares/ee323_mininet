@@ -192,9 +192,6 @@ void sr_handlepacket(struct sr_instance* sr,
     }
 
     ip_hdr.ip_ttl--;
-    ip_hdr.ip_sum = 0;
-    ip_checksum = cksum(&ip_hdr, 20);
-    ip_hdr.ip_sum = ip_checksum;
 
     printf("checksum validated\n");
 
@@ -207,17 +204,25 @@ void sr_handlepacket(struct sr_instance* sr,
 
       ip_hdr.ip_dst = ip_hdr.ip_src;
       ip_hdr.ip_src = if_temp->ip;
-      ip_hdr.ip_p = htons(ip_protocol_icmp);
+      ip_hdr.ip_p = 1;
       
-      sr_icmp_hdr_t icmp_hdr;
+      sr_icmp_t3_hdr_t icmp_hdr;
       
       icmp_hdr.icmp_type = 11;
       icmp_hdr.icmp_code = 0;
+
+      ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+      ip_hdr.ip_sum = 0;
+      ip_checksum = cksum(&ip_hdr, sizeof(icmp_hdr) + sizeof(ip_hdr));
+      ip_hdr.ip_sum = ip_checksum;
 
       realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
       memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
       memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
       memcpy(packet_cpy, &eth_hdr, 14);
+
+      print_hdr_ip(&ip_hdr);
+      print_hdr_icmp(&icmp_hdr);
       sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
     }
 
@@ -242,8 +247,8 @@ void sr_handlepacket(struct sr_instance* sr,
         ip_hdr.ip_dst = ip_hdr.ip_src;
         ip_hdr.ip_src = if_walker->ip;
 
-        sr_icmp_hdr_t icmp_hdr;
-        if(ip_hdr.ip_p == htons(ip_protocol_icmp))
+        sr_icmp_t3_hdr_t icmp_hdr;
+        if(ip_hdr.ip_p == 1)
         {
           printf("echo reply by the router\n");
           icmp_hdr.icmp_type = 0;
@@ -256,12 +261,20 @@ void sr_handlepacket(struct sr_instance* sr,
           icmp_hdr.icmp_code = 3;
         }
 
-        ip_hdr.ip_p = htons(ip_protocol_icmp);
+        ip_hdr.ip_p = 1;
+        ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+
+        ip_hdr.ip_sum = 0;
+        ip_checksum = cksum(&ip_hdr, sizeof(icmp_hdr) + sizeof(ip_hdr));
+        ip_hdr.ip_sum = ip_checksum;
 
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
         memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
         memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
         memcpy(packet_cpy, &eth_hdr, 14);
+
+        print_hdr_ip(&ip_hdr);
+        print_hdr_icmp(&icmp_hdr);
         sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         return;
       }
@@ -300,17 +313,25 @@ void sr_handlepacket(struct sr_instance* sr,
 
         ip_hdr.ip_dst = ip_hdr.ip_src;
         ip_hdr.ip_src = if_walker->ip;
-        ip_hdr.ip_p = htons(ip_protocol_icmp);
+        ip_hdr.ip_p = 1;
         
-        sr_icmp_hdr_t icmp_hdr;
+        sr_icmp_t3_hdr_t icmp_hdr;
         
         icmp_hdr.icmp_type = 3;
         icmp_hdr.icmp_code = 0;
+
+        ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+        ip_hdr.ip_sum = 0;
+        ip_checksum = cksum(&ip_hdr, sizeof(icmp_hdr) + sizeof(ip_hdr));
+        ip_hdr.ip_sum = ip_checksum;
 
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
         memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
         memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
         memcpy(packet_cpy, &eth_hdr, 14);
+
+        print_hdr_ip(&ip_hdr);
+        print_hdr_icmp(&icmp_hdr);
         sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         return;
       }
