@@ -11,7 +11,6 @@
 #include "sr_if.h"
 #include "sr_protocol.h"
 
-
 /* Newly added function that handles arp request.*/
 void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
 {
@@ -23,7 +22,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
             struct sr_packet *pkt_walker = req->packets;
             while(pkt_walker != NULL)
             {
-                printf("sending host unreachable ICMP \n");
+                printf("timeout, sending host unreachable ICMP \n");
                 uint8_t *packet_cpy = malloc(pkt_walker->len);
                 memcpy(packet_cpy, pkt_walker->buf, pkt_walker->len);
                   
@@ -32,21 +31,23 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
                 struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
                 memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
-                
-                sr_ip_hdr_t ip_hdr;
-                memcpy(&ip_hdr, packet_cpy + sizeof(ip_hdr), sizeof(ip_hdr));
-                ip_hdr.ip_dst = ip_hdr.ip_src;
-                ip_hdr.ip_src = if_temp->ip;
-                ip_hdr.ip_p = 1;
 
                 sr_icmp_t3_hdr_t icmp_hdr;
                 
                 icmp_hdr.icmp_type = 3;
                 icmp_hdr.icmp_code = 1;
-                
+                icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
+
+                sr_ip_hdr_t ip_hdr;
+
+                memcpy(&ip_hdr, packet_cpy + 14, sizeof(ip_hdr));
+                ip_hdr.ip_dst = ip_hdr.ip_src;
+                ip_hdr.ip_src = if_temp->ip;
                 ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+                ip_hdr.ip_p = 1;
+
                 ip_hdr.ip_sum = 0;
-                uint16_t ip_checksum = cksum(&ip_hdr, sizeof(icmp_hdr) + sizeof(ip_hdr));
+                uint16_t ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
                 ip_hdr.ip_sum = ip_checksum;
 
                 realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
@@ -54,9 +55,6 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
                 memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
                 memcpy(packet_cpy, &eth_hdr, 14);
-
-                print_hdr_ip(&ip_hdr);
-                print_hdr_icmp(&icmp_hdr);
                 sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
 
                 free(packet_cpy);
@@ -68,19 +66,30 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
         {
             struct sr_if *if_walker = sr->if_list;
       
-            while(if_walker->next)
+            while(if_walker)
             {
                 sr_ethernet_hdr_t eth_hdr;
                 sr_arp_hdr_t arp_hdr;
                 uint8_t *packet = malloc(sizeof(eth_hdr) + sizeof(arp_hdr));
-                memset(arp_hdr.ar_tha, 0xf, ETHER_ADDR_LEN);
+
+                arp_hdr.ar_hrd = htons(arp_hrd_ethernet);
+                arp_hdr.ar_pro = htons(ethertype_ip);
+                arp_hdr.ar_hln = 0x6;
+                arp_hdr.ar_pln = 0x4;
+                memset(arp_hdr.ar_tha, 0xff, ETHER_ADDR_LEN);
                 memcpy(arp_hdr.ar_sha, if_walker->addr, ETHER_ADDR_LEN);
                 arp_hdr.ar_tip = req->ip;
                 arp_hdr.ar_sip = if_walker->ip;
+                arp_hdr.ar_op = htons(arp_op_request);
 
-                memcpy(&arp_hdr, packet + sizeof(eth_hdr), sizeof(arp_hdr));
-                memcpy(&eth_hdr, packet, sizeof(eth_hdr));
+                memset(&eth_hdr.ether_dhost, 0xff, ETHER_ADDR_LEN);
+                memcpy(&eth_hdr.ether_shost, if_walker->addr, ETHER_ADDR_LEN);
+                eth_hdr.ether_type = htons(ethertype_arp);
+
+                memcpy(packet + sizeof(eth_hdr), &arp_hdr, sizeof(arp_hdr));
+                memcpy(packet, &eth_hdr, sizeof(eth_hdr));
                 sr_send_packet(sr, packet, sizeof(eth_hdr) + sizeof(arp_hdr), if_walker->name);
+                free(packet);
                 if_walker = if_walker->next;
             }
             req->sent = curtime;
