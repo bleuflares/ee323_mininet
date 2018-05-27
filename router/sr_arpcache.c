@@ -27,10 +27,6 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 memcpy(packet_cpy, pkt_walker->buf, pkt_walker->len);
                   
                 sr_ethernet_hdr_t eth_hdr;
-                memcpy(&eth_hdr, packet_cpy, 14);
-                memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
-                struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
-                memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
 
                 sr_icmp_t3_hdr_t icmp_hdr;
                 
@@ -42,6 +38,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 sr_ip_hdr_t ip_hdr;
 
                 memcpy(&ip_hdr, packet_cpy + 14, sizeof(ip_hdr));
+                struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
                 ip_hdr.ip_dst = ip_hdr.ip_src;
                 ip_hdr.ip_src = if_temp->ip;
                 ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
@@ -54,8 +51,25 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
 
                 memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
                 memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
-                memcpy(packet_cpy, &eth_hdr, 14);
-                sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
+                
+                printf("checking arp cache...\n");
+
+                struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
+                if(ae != NULL)
+                {
+                    printf("arp cache hit!!! \n");
+                    memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+                    memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
+                    memcpy(packet_cpy, &eth_hdr, 14);
+                    sr_send_packet(sr, packet_cpy, pkt_walker->len, pkt_walker->iface);
+                    free(ae);
+                }
+                else
+                {
+                    printf("arp cache miss, queueing... \n");
+                    struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, pkt_walker->len, pkt_walker->iface);
+                    sr_arpreq_handle(sr, arp_req);
+                }
 
                 free(packet_cpy);
                 pkt_walker = pkt_walker->next;
