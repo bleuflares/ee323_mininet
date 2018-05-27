@@ -36,6 +36,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 
                 icmp_hdr.icmp_type = 3;
                 icmp_hdr.icmp_code = 1;
+                icmp_hdr.icmp_sum = 0;
                 icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
 
                 sr_ip_hdr_t ip_hdr;
@@ -47,8 +48,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 ip_hdr.ip_p = 1;
 
                 ip_hdr.ip_sum = 0;
-                uint16_t ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
-                ip_hdr.ip_sum = ip_checksum;
+                ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
                 realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
 

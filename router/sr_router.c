@@ -192,25 +192,46 @@ void sr_handlepacket(struct sr_instance* sr,
 
   else if(ethertype((uint8_t *)&eth_hdr) == ethertype_ip)
   {
-    printf("received arp req\n");
     sr_ip_hdr_t ip_hdr;
-    uint16_t ip_checksum = 0;
-
     memcpy(&ip_hdr, packet_cpy + 14, 20);
-    ip_checksum = cksum(&ip_hdr, 20);
-    if(ip_checksum != 0xffff)
+
+    if(cksum(&ip_hdr, 20) != 0xffff)
     {
       printf("wrong checksum\n");
       return;
     }
-
-    ip_hdr.ip_ttl--;
-
     printf("checksum validated\n");
 
     if(ip_hdr.ip_ttl == 0)
     {
       printf("ttl expired \n");
+      /*
+      printf("checking arp cache...\n");
+
+      if_walker = sr_get_interface(sr, (const char *)interface);
+      memcpy(&eth_hdr.ether_shost, if_walker->addr, 6);
+
+      struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_src);
+      if(ae != NULL)
+      {
+        printf("arp cache hit!!! \n");
+        memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)dst_if)->addr, ETHER_ADDR_LEN);
+        memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
+        memcpy(packet_cpy, &eth_hdr, 14);
+        sr_send_packet(sr, packet_cpy, len, dst_if);
+        free(ae);
+
+      }
+      else
+      {
+        printf("arp cache miss, queueing... \n");
+        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, dst_if);
+
+        sr_arpreq_handle(sr, arp_req);
+        printf("arpreq walker queued is %p \n", sr->cache.requests);
+      }
+      */
+
       memcpy(&eth_hdr.ether_dhost, eth_hdr.ether_shost, ETHER_ADDR_LEN);
       struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
       memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
@@ -223,12 +244,12 @@ void sr_handlepacket(struct sr_instance* sr,
       
       icmp_hdr.icmp_type = 11;
       icmp_hdr.icmp_code = 0;
+      icmp_hdr.icmp_sum = 0;
       icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
 
       ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
       ip_hdr.ip_sum = 0;
-      ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
-      ip_hdr.ip_sum = ip_checksum;
+      ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
       realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
       memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
@@ -238,7 +259,10 @@ void sr_handlepacket(struct sr_instance* sr,
       print_hdr_ip(&ip_hdr);
       print_hdr_icmp(&icmp_hdr);
       sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
+      return;
     }
+
+    ip_hdr.ip_ttl--;
 
     struct sr_if* if_walker = 0;
 
@@ -265,11 +289,12 @@ void sr_handlepacket(struct sr_instance* sr,
           sr_icmp_hdr_t icmp_hdr;
           icmp_hdr.icmp_type = 0;
           icmp_hdr.icmp_code = 0;
-          icmp_hdr.icmp_sum = cksum(&icmp_hdr, len - sizeof(ip_hdr) + 14);
+          icmp_hdr.icmp_sum = 0;
+          memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+          icmp_hdr.icmp_sum = cksum(packet_cpy + sizeof(ip_hdr) + 14, len - sizeof(ip_hdr) - 14);
 
           ip_hdr.ip_sum = 0;
-          ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
-          ip_hdr.ip_sum = ip_checksum;
+          ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
           memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
           memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
@@ -284,13 +309,14 @@ void sr_handlepacket(struct sr_instance* sr,
           sr_icmp_t3_hdr_t icmp_hdr;
           icmp_hdr.icmp_type = 3;
           icmp_hdr.icmp_code = 3;
+          icmp_hdr.icmp_sum = 0;
+          memcpy(&icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
           icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
           ip_hdr.ip_p = 1;
 
           ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
           ip_hdr.ip_sum = 0;
-          ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
-          ip_hdr.ip_sum = ip_checksum;
+          ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
           realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
           memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
@@ -338,12 +364,13 @@ void sr_handlepacket(struct sr_instance* sr,
         
         icmp_hdr.icmp_type = 3;
         icmp_hdr.icmp_code = 0;
+        icmp_hdr.icmp_sum = 0;
+        memcpy(&icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
         icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
 
         ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
         ip_hdr.ip_sum = 0;
-        ip_checksum = cksum(&ip_hdr, sizeof(ip_hdr));
-        ip_hdr.ip_sum = ip_checksum;
+        ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
         memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
@@ -360,9 +387,10 @@ void sr_handlepacket(struct sr_instance* sr,
     }
 
     printf("checking arp cache...\n");
-
+    /*
     if_walker = sr_get_interface(sr, (const char *)interface);
     memcpy(&eth_hdr.ether_shost, if_walker->addr, 6);
+    */
 
     struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, next_hop_ip);
     if(ae != NULL)
