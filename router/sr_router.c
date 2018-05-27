@@ -136,6 +136,8 @@ void sr_handlepacket(struct sr_instance* sr,
       else
       {
         struct sr_if* if_walker = 0;
+        struct sr_arpreq *arpreq_walker;
+
 
         if(sr->if_list == 0)
         {
@@ -150,33 +152,35 @@ void sr_handlepacket(struct sr_instance* sr,
           if(arp_hdr.ar_tip == if_walker->ip)
           {
             printf("adding new mapping\n");
-            sr_arpcache_insert(&sr->cache, arp_hdr.ar_sha, arp_hdr.ar_sip);
+            arpreq_walker = sr_arpcache_insert(&sr->cache, arp_hdr.ar_sha, arp_hdr.ar_sip);
             break;
           }
           if_walker = if_walker->next;
         }
 
         /*find the arpreq with the ip matching and sent all pkts and destroy*/
-        struct sr_arpreq *arpreq_walker = sr->cache.requests;
-
-        printf("checking pending arpreqs\n");
-        printf("arpreq walker is %p \n", arpreq_walker);
-        while(arpreq_walker != NULL)
-        {
-          printf("arp target ip %d \n", arp_hdr.ar_tip);
-          printf("interface ip %d \n", arpreq_walker->ip);
-          if(arp_hdr.ar_tip == arpreq_walker->ip)
-          {
-            printf("found pending req\n");
-            break;
-          }
-          arpreq_walker = arpreq_walker->next;
-        }
         if(arpreq_walker != NULL)
         {
+          if(arp_hdr.ar_sip != arpreq_walker->ip)
+          {
+            printf("arp reply's ip does not match\n");
+            sr_arpreq_destroy(&sr->cache, arpreq_walker);
+            return;
+          }
+          printf("found pending req\n");
           while(arpreq_walker->packets != NULL)
           {
             printf("handling pending packets\n");
+
+            sr_ethernet_hdr_t eth_hdr_mod;
+            memcpy(&eth_hdr_mod, arpreq_walker->packets->buf, 14);
+
+            ae = sr_arpcache_lookup(&sr->cache, arp_hdr.ar_sip);
+            memcpy(&eth_hdr_mod.ether_shost, sr_get_interface(sr, (const char *)arpreq_walker->packets->iface)->addr, ETHER_ADDR_LEN);
+            memcpy(&eth_hdr_mod.ether_dhost, ae->mac, 6);
+
+            memcpy(arpreq_walker->packets->buf, &eth_hdr_mod, 14);
+
             sr_send_packet(sr, arpreq_walker->packets->buf, arpreq_walker->packets->len, arpreq_walker->packets->iface);
             arpreq_walker->packets = arpreq_walker->packets->next;
           }
