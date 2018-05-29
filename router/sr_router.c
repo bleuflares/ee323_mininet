@@ -202,6 +202,8 @@ void sr_handlepacket(struct sr_instance* sr,
     }
     printf("checksum validated\n");
 
+    ip_hdr.ip_ttl--;
+
     if(ip_hdr.ip_ttl == 0)
     {
       printf("ttl expired \n");
@@ -246,8 +248,6 @@ void sr_handlepacket(struct sr_instance* sr,
       }
       return;
     }
-
-    ip_hdr.ip_ttl--;
 
     struct sr_if* if_walker = 0;
 
@@ -354,7 +354,8 @@ void sr_handlepacket(struct sr_instance* sr,
       for(rt_walker =sr->routing_table; rt_walker != 0; rt_walker = rt_walker->next)
       {
         printf("here1\n");
-        if(ip_hdr.ip_dst == rt_walker->dest.s_addr)
+        printf("compare %d and %d \n", ntohl(ip_hdr.ip_dst) >> 8, ntohl(rt_walker->dest.s_addr) >> 8);
+        if(ntohl(ip_hdr.ip_dst) >> 8 == ntohl(rt_walker->dest.s_addr) >> 8)
         {
           printf("here2\n");
           next_hop_ip = rt_walker->gw.s_addr;
@@ -435,14 +436,6 @@ void sr_handlepacket(struct sr_instance* sr,
       struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, dst_if);
       sr_arpreq_handle(sr, arp_req);
     }
-
-    /*
-    search routing table and get next hop ip
-
-    lookup arp table for the mac addr for that ip
-
-    deliver packet with that mac addr and ip
-    */
 
   }
   /* fill in code here */
