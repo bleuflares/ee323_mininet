@@ -33,6 +33,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 icmp_hdr.icmp_type = 3;
                 icmp_hdr.icmp_code = 1;
                 icmp_hdr.icmp_sum = 0;
+                memcpy(&icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
                 icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
 
                 sr_ip_hdr_t ip_hdr;
