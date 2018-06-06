@@ -366,7 +366,6 @@ void sr_handlepacket(struct sr_instance* sr,
           dst_if = rt_walker->interface;
           break;
         }
-        /*do i need to implement longest prefix match?*/
       }
       if(rt_walker == 0)
       {
@@ -413,6 +412,12 @@ void sr_handlepacket(struct sr_instance* sr,
           sr_arpreq_handle(sr, arp_req);
         }
         return;
+      }
+      else
+      {
+        ip_hdr.ip_sum = 0;
+        ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
+        memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
       }
     }
     else
