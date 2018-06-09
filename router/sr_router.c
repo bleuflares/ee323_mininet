@@ -218,14 +218,14 @@ void sr_handlepacket(struct sr_instance* sr,
       icmp_hdr.icmp_type = 11;
       icmp_hdr.icmp_code = 0;
       icmp_hdr.icmp_sum = 0;
-      memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+      memcpy(icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
       icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
 
       ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
       ip_hdr.ip_sum = 0;
       ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
 
-      /*realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);*/
+      realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
       memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
       memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
 
@@ -238,13 +238,13 @@ void sr_handlepacket(struct sr_instance* sr,
         memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
         memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
         memcpy(packet_cpy, &eth_hdr, 14);
-        sr_send_packet(sr, packet_cpy, len, interface);
+        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         free(ae);
       }
       else
       {
         printf("arp cache miss, queueing... \n");
-        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, len, interface);
+        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         sr_arpreq_handle(sr, arp_req);
       }
       return;
@@ -333,13 +333,13 @@ void sr_handlepacket(struct sr_instance* sr,
             memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
             memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
             memcpy(packet_cpy, &eth_hdr, 14);
-            sr_send_packet(sr, packet_cpy, len, interface);
+            sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
             free(ae);
           }
           else
           {
             printf("arp cache miss, queueing... \n");
-            struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, len, interface);
+            struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
             sr_arpreq_handle(sr, arp_req);
           }
           return;
@@ -402,13 +402,13 @@ void sr_handlepacket(struct sr_instance* sr,
           memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)interface)->addr, ETHER_ADDR_LEN);
           memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
           memcpy(packet_cpy, &eth_hdr, 14);
-          sr_send_packet(sr, packet_cpy, len, interface);
+          sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
           free(ae);
         }
         else
         {
           printf("arp cache miss, queueing... \n");
-          struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, len, interface);
+          struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
           sr_arpreq_handle(sr, arp_req);
         }
         return;

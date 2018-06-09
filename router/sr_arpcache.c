@@ -62,13 +62,13 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                     memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
                     memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
                     memcpy(packet_cpy, &eth_hdr, 14);
-                    sr_send_packet(sr, packet_cpy, pkt_walker->len, pkt_walker->iface);
+                    sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
                     free(ae);
                 }
                 else
                 {
                     printf("arp cache miss, queueing... \n");
-                    struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, pkt_walker->len, pkt_walker->iface);
+                    struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, pkt_walker->iface);
                     sr_arpreq_handle(sr, arp_req);
                 }
 
