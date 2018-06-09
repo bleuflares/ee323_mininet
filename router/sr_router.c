@@ -202,53 +202,7 @@ void sr_handlepacket(struct sr_instance* sr,
     }
     printf("checksum validated\n");
 
-    ip_hdr.ip_ttl--;
 
-    if(ip_hdr.ip_ttl == 0)
-    {
-      printf("ttl expired \n");
-      struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
-
-      ip_hdr.ip_dst = ip_hdr.ip_src;
-      ip_hdr.ip_src = if_temp->ip;
-      ip_hdr.ip_p = 1;
-      
-      sr_icmp_t3_hdr_t icmp_hdr;
-      
-      icmp_hdr.icmp_type = 11;
-      icmp_hdr.icmp_code = 0;
-      icmp_hdr.icmp_sum = 0;
-      memcpy(icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
-      icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
-
-      ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
-      ip_hdr.ip_sum = 0;
-      ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
-
-      realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
-      memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
-      memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
-
-      printf("checking arp cache...\n");
-
-      struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
-      if(ae != NULL)
-      {
-        printf("arp cache hit!!! \n");
-        memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
-        memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
-        memcpy(packet_cpy, &eth_hdr, 14);
-        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
-        free(ae);
-      }
-      else
-      {
-        printf("arp cache miss, queueing... \n");
-        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
-        sr_arpreq_handle(sr, arp_req);
-      }
-      return;
-    }
 
     struct sr_if* if_walker = 0;
 
@@ -346,6 +300,54 @@ void sr_handlepacket(struct sr_instance* sr,
         }        
       }
       if_walker = if_walker->next;
+    }
+
+    ip_hdr.ip_ttl--;
+
+    if(ip_hdr.ip_ttl == 0)
+    {
+      printf("ttl expired \n");
+      struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
+
+      ip_hdr.ip_dst = ip_hdr.ip_src;
+      ip_hdr.ip_src = if_temp->ip;
+      ip_hdr.ip_p = 1;
+      
+      sr_icmp_t3_hdr_t icmp_hdr;
+      
+      icmp_hdr.icmp_type = 11;
+      icmp_hdr.icmp_code = 0;
+      icmp_hdr.icmp_sum = 0;
+      memcpy(icmp_hdr.data, packet_cpy + 14, ICMP_DATA_SIZE);
+      icmp_hdr.icmp_sum = cksum(&icmp_hdr, sizeof(icmp_hdr));
+
+      ip_hdr.ip_len = htons(sizeof(icmp_hdr) + sizeof(ip_hdr));
+      ip_hdr.ip_sum = 0;
+      ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
+
+      realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
+      memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
+      memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
+
+      printf("checking arp cache...\n");
+
+      struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
+      if(ae != NULL)
+      {
+        printf("arp cache hit!!! \n");
+        memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+        memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
+        memcpy(packet_cpy, &eth_hdr, 14);
+        sr_send_packet(sr, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
+        free(ae);
+      }
+      else
+      {
+        printf("arp cache miss, queueing... \n");
+        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
+        sr_arpreq_handle(sr, arp_req);
+      }
+      return;
     }
 
     uint32_t next_hop_ip;
