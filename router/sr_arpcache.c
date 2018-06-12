@@ -79,6 +79,34 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
         }
         else
         {
+
+            struct sr_packet *pkt_walker = req->packets;
+            struct sr_if *if_temp = sr_get_interface(sr, (const char *)pkt_walker->iface);
+
+            sr_ethernet_hdr_t eth_hdr;
+            sr_arp_hdr_t arp_hdr;
+            uint8_t *packet = malloc(sizeof(eth_hdr) + sizeof(arp_hdr));
+
+            arp_hdr.ar_hrd = htons(arp_hrd_ethernet);
+            arp_hdr.ar_pro = htons(ethertype_ip);
+            arp_hdr.ar_hln = 0x6;
+            arp_hdr.ar_pln = 0x4;
+            memset(arp_hdr.ar_tha, 0xff, ETHER_ADDR_LEN);
+            memcpy(arp_hdr.ar_sha, if_temp->addr, ETHER_ADDR_LEN);
+            arp_hdr.ar_tip = req->ip;
+            arp_hdr.ar_sip = if_temp->ip;
+            arp_hdr.ar_op = htons(arp_op_request);
+
+            memset(&eth_hdr.ether_dhost, 0xff, ETHER_ADDR_LEN);
+            memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
+            eth_hdr.ether_type = htons(ethertype_arp);
+
+            memcpy(packet + sizeof(eth_hdr), &arp_hdr, sizeof(arp_hdr));
+            memcpy(packet, &eth_hdr, sizeof(eth_hdr));
+            sr_send_packet(sr, packet, sizeof(eth_hdr) + sizeof(arp_hdr), if_temp->name);
+            free(packet);
+
+            /*
             struct sr_if *if_walker = sr->if_list;
       
             while(if_walker)
@@ -107,6 +135,7 @@ void sr_arpreq_handle(struct sr_instance *sr, struct sr_arpreq *req)
                 free(packet);
                 if_walker = if_walker->next;
             }
+            */
             req->sent = curtime;
             req->times_sent++;
         }
