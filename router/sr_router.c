@@ -93,11 +93,10 @@ void sr_handlepacket(struct sr_instance* sr,
 
     if(arp_hdr.ar_op == htons(arp_op_request))
     {
-      printf("received arp req\n");
       struct sr_if* if_walker = 0;
 
       if(sr->if_list == 0)
-          printf(" Interface list empty \n");
+          return;
 
       if_walker = sr->if_list;
       
@@ -125,14 +124,11 @@ void sr_handlepacket(struct sr_instance* sr,
     }
     else if(arp_hdr.ar_op == htons(arp_op_reply))
     {
-      printf("received arp reply\n");
       struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, arp_hdr.ar_sip);
 
       if(ae != NULL)
-      {
-        printf("arp mapping already exists \n");
         return;
-      }
+
       else
       {
         struct sr_if* if_walker = 0;
@@ -140,10 +136,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
 
         if(sr->if_list == 0)
-        {
-            printf(" Interface list empty \n");
             return;
-        }
 
         if_walker = sr->if_list;
         
@@ -151,7 +144,6 @@ void sr_handlepacket(struct sr_instance* sr,
         {
           if(arp_hdr.ar_tip == if_walker->ip)
           {
-            printf("adding new mapping\n");
             arpreq_walker = sr_arpcache_insert(&sr->cache, arp_hdr.ar_sha, arp_hdr.ar_sip);
             break;
           }
@@ -163,15 +155,12 @@ void sr_handlepacket(struct sr_instance* sr,
         {
           if(arp_hdr.ar_sip != arpreq_walker->ip)
           {
-            printf("arp reply's ip does not match\n");
             sr_arpreq_destroy(&sr->cache, arpreq_walker);
             return;
           }
-          printf("found pending req\n");
+          
           while(arpreq_walker->packets != NULL)
           {
-            printf("handling pending packets\n");
-
             sr_ethernet_hdr_t eth_hdr_mod;
             memcpy(&eth_hdr_mod, arpreq_walker->packets->buf, 14);
 
@@ -196,18 +185,12 @@ void sr_handlepacket(struct sr_instance* sr,
     memcpy(&ip_hdr, packet_cpy + 14, 20);
 
     if(cksum(&ip_hdr, 20) != 0xffff)
-    {
-      printf("wrong checksum\n");
       return;
-    }
-    printf("checksum validated\n");
-
-
 
     struct sr_if* if_walker = 0;
 
     if(sr->if_list == 0)
-        printf(" Interface list empty \n");
+        return;
     
     if_walker = sr->if_list;
 
@@ -221,7 +204,6 @@ void sr_handlepacket(struct sr_instance* sr,
         
         if(ip_hdr.ip_p == 1)
         {
-          printf("echo reply by the router\n");
           sr_icmp_hdr_t icmp_hdr;
           icmp_hdr.icmp_type = 0;
           icmp_hdr.icmp_code = 0;
@@ -234,13 +216,10 @@ void sr_handlepacket(struct sr_instance* sr,
 
           memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
           memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
-          
-          printf("checking arp cache...\n");
 
           struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
           if(ae != NULL)
           {
-            printf("arp cache hit!!! \n");
             memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)interface)->addr, ETHER_ADDR_LEN);
             memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
             memcpy(packet_cpy, &eth_hdr, 14);
@@ -249,7 +228,6 @@ void sr_handlepacket(struct sr_instance* sr,
           }
           else
           {
-            printf("arp cache miss, queueing... \n");
             struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, len, interface);
             sr_arpreq_handle(sr, arp_req);
           }
@@ -258,7 +236,6 @@ void sr_handlepacket(struct sr_instance* sr,
         }
         else
         {
-          printf("port unreachable send ICMP\n");
           struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
           ip_hdr.ip_src = if_temp->ip;
 
@@ -278,12 +255,9 @@ void sr_handlepacket(struct sr_instance* sr,
           memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
           memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
           
-          printf("checking arp cache...\n");
-
           struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
           if(ae != NULL)
           {
-            printf("arp cache hit!!! \n");
             memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
             memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
             memcpy(packet_cpy, &eth_hdr, 14);
@@ -292,7 +266,6 @@ void sr_handlepacket(struct sr_instance* sr,
           }
           else
           {
-            printf("arp cache miss, queueing... \n");
             struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
             sr_arpreq_handle(sr, arp_req);
           }
@@ -306,7 +279,6 @@ void sr_handlepacket(struct sr_instance* sr,
 
     if(ip_hdr.ip_ttl == 0)
     {
-      printf("ttl expired \n");
       struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
 
       ip_hdr.ip_dst = ip_hdr.ip_src;
@@ -329,12 +301,9 @@ void sr_handlepacket(struct sr_instance* sr,
       memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
       memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
 
-      printf("checking arp cache...\n");
-
       struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
       if(ae != NULL)
       {
-        printf("arp cache hit!!! \n");
         memcpy(&eth_hdr.ether_shost, if_temp->addr, ETHER_ADDR_LEN);
         memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
         memcpy(packet_cpy, &eth_hdr, 14);
@@ -343,7 +312,6 @@ void sr_handlepacket(struct sr_instance* sr,
       }
       else
       {
-        printf("arp cache miss, queueing... \n");
         struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
         sr_arpreq_handle(sr, arp_req);
       }
@@ -359,11 +327,8 @@ void sr_handlepacket(struct sr_instance* sr,
 
       for(rt_walker =sr->routing_table; rt_walker != 0; rt_walker = rt_walker->next)
       {
-        printf("here1\n");
-        printf("compare %d and %d \n", ntohl(ip_hdr.ip_dst) >> 8, ntohl(rt_walker->dest.s_addr) >> 8);
         if(ntohl(ip_hdr.ip_dst) >> 8 == ntohl(rt_walker->dest.s_addr) >> 8)
         {
-          printf("here2\n");
           next_hop_ip = rt_walker->gw.s_addr;
           dst_if = rt_walker->interface;
           break;
@@ -371,8 +336,6 @@ void sr_handlepacket(struct sr_instance* sr,
       }
       if(rt_walker == 0)
       {
-        printf("destination net unreachable send ICMP\n");
-
         struct sr_if *if_temp = sr_get_interface(sr, (const char *)interface);
         
         ip_hdr.ip_dst = ip_hdr.ip_src;
@@ -394,13 +357,10 @@ void sr_handlepacket(struct sr_instance* sr,
         realloc(packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14);
         memcpy(packet_cpy + sizeof(ip_hdr) + 14, &icmp_hdr, sizeof(icmp_hdr));
         memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
-        
-        printf("checking arp cache...\n");
 
         struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, ip_hdr.ip_dst);
         if(ae != NULL)
         {
-          printf("arp cache hit!!! \n");
           memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)interface)->addr, ETHER_ADDR_LEN);
           memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
           memcpy(packet_cpy, &eth_hdr, 14);
@@ -409,7 +369,6 @@ void sr_handlepacket(struct sr_instance* sr,
         }
         else
         {
-          printf("arp cache miss, queueing... \n");
           struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, ip_hdr.ip_dst, packet_cpy, sizeof(icmp_hdr) + sizeof(ip_hdr) + 14, interface);
           sr_arpreq_handle(sr, arp_req);
         }
@@ -421,33 +380,25 @@ void sr_handlepacket(struct sr_instance* sr,
         ip_hdr.ip_sum = cksum(&ip_hdr, sizeof(ip_hdr));
         memcpy(packet_cpy + 14, &ip_hdr, sizeof(ip_hdr));
       }
+
+      struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, next_hop_ip);
+      if(ae != NULL)
+      {
+        memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)dst_if)->addr, ETHER_ADDR_LEN);
+        memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
+        memcpy(packet_cpy, &eth_hdr, 14);
+        sr_send_packet(sr, packet_cpy, len, dst_if);
+        free(ae);
+
+      }
+      else
+      {
+        struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, dst_if);
+        sr_arpreq_handle(sr, arp_req);
+      }
     }
     else
-    {
-      printf("failed to load rtable \n");
       return;
-    }
-
-    printf("checking arp cache...\n");
-
-    struct sr_arpentry *ae = sr_arpcache_lookup(&sr->cache, next_hop_ip);
-    if(ae != NULL)
-    {
-      printf("arp cache hit!!! \n");
-      memcpy(&eth_hdr.ether_shost, sr_get_interface(sr, (const char *)dst_if)->addr, ETHER_ADDR_LEN);
-      memcpy(&eth_hdr.ether_dhost, ae->mac, 6);
-      memcpy(packet_cpy, &eth_hdr, 14);
-      sr_send_packet(sr, packet_cpy, len, dst_if);
-      free(ae);
-
-    }
-    else
-    {
-      printf("arp cache miss, queueing... \n");
-      struct sr_arpreq *arp_req = sr_arpcache_queuereq(&sr->cache, next_hop_ip, packet_cpy, len, dst_if);
-      sr_arpreq_handle(sr, arp_req);
-    }
-
   }
   /* fill in code here */
 
